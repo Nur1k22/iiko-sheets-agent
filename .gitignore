@@ -1,0 +1,7 @@
+﻿google_credentials.json
+token.pickle
+*.pickle
+*.log
+*.lnk
+venv/
+__pycache__/
