@@ -1,5 +1,6 @@
 ﻿google_credentials.json
 token.pickle
+.vscode/
 *.pickle
 *.log
 *.lnk
