@@ -1,6 +1,7 @@
 """
 iiko → Google Sheets Agent
-Каждый час: нажимает Excel... в iiko Office → читает файл из Temp → пишет в Google Sheets
+Каждый час: нажимает Excel в iiko Office → читает файл из Temp → пишет в Google Sheets
+Авторизация: Apps Script Web App (без Google Cloud Console)
 """
 
 import os
@@ -11,28 +12,17 @@ import schedule
 import pyautogui
 import pygetwindow as gw
 import pandas as pd
-import gspread
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+import requests
 from datetime import datetime
-import pickle
 
 # ─────────────────────────────────────────
 #  НАСТРОЙКИ
 # ─────────────────────────────────────────
 
-EXPORT_FOLDER           = r"D:\vs\iiko_exports"
-SPREADSHEET_ID          = "1U9kZMq1eJ1FtTOzl_eSevgoO_pr2ucNp4MUUxoHhWHs"
-SHEET_NAME              = "Почасовой ТО"
-GOOGLE_CREDENTIALS_JSON = r"D:\vs\iiko_exports\google_credentials.json"
-GOOGLE_TOKEN_PICKLE     = r"D:\vs\iiko_exports\token.pickle"
-IIKO_WINDOW_TITLE       = "iikoChain"
-IIKO_TEMP_FOLDER        = r"C:\Users\nur1k\AppData\Local\Temp\Resto"
-
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+EXPORT_FOLDER      = r"D:\vs\iiko_exports"
+APPS_SCRIPT_URL    = "https://script.google.com/macros/s/AKfycbxbmPQm-xQCuirQbT47nRbkLbQboldbyqFfUqcDxt421BzJVnE3GgvtJb8ivkrl8jIfnA/exec"
+IIKO_WINDOW_TITLE  = "iikoChain"
+IIKO_TEMP_FOLDER   = r"C:\Users\nur1k\AppData\Local\Temp\Resto"
 
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
 
@@ -50,33 +40,6 @@ log = logging.getLogger(__name__)
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.5
-
-
-def get_google_credentials():
-    creds = None
-    if os.path.exists(GOOGLE_TOKEN_PICKLE):
-        with open(GOOGLE_TOKEN_PICKLE, "rb") as f:
-            creds = pickle.load(f)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            log.info("Обновляю токен...")
-            try:
-                creds.refresh(Request())
-            except Exception as e:
-                log.error(f"Ошибка обновления токена: {e}")
-                creds = None
-
-        if not creds:
-            log.info("Открываю браузер для авторизации...")
-            flow = InstalledAppFlow.from_client_secrets_file(
-                GOOGLE_CREDENTIALS_JSON, SCOPES
-            )
-            creds = flow.run_local_server(port=0)
-            with open(GOOGLE_TOKEN_PICKLE, "wb") as f:
-                pickle.dump(creds, f)
-            log.info("Токен сохранён.")
-    return creds
 
 
 def find_iiko_window():
@@ -111,7 +74,6 @@ def click_excel_button():
 
 
 def wait_and_close_excel():
-    """Ждём открытия Excel, потом закрываем его."""
     import ctypes
     log.info("Жду открытия Excel...")
     time.sleep(4)
@@ -127,7 +89,6 @@ def wait_and_close_excel():
         time.sleep(0.5)
         pyautogui.hotkey('alt', 'f4')
         time.sleep(1)
-        # Если спросит "Сохранить?" — не сохранять
         pyautogui.press('n')
         time.sleep(1)
     else:
@@ -135,7 +96,6 @@ def wait_and_close_excel():
 
 
 def find_latest_iiko_file():
-    """Находит последний xlsx файл в папке Temp iiko."""
     patterns = [
         os.path.join(IIKO_TEMP_FOLDER, "*.xlsx"),
         r"C:\Users\nur1k\AppData\Local\Temp\*.xlsx",
@@ -163,16 +123,26 @@ def read_excel(filepath):
 
 
 def update_google_sheets(rows):
-    log.info("Подключаюсь к Google Sheets...")
-    creds = get_google_credentials()
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
-    sheet.clear()
-    timestamp_str = f"Обновлено: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
-    sheet.update(range_name="A1", values=[[timestamp_str]])
-    if rows:
-        sheet.update(range_name="A2", values=rows)
-    log.info(f"Google Sheets обновлён: {len(rows)} строк")
+    if APPS_SCRIPT_URL == "ВСТАВЬ_СЮДА_URL_ВЕБ_ПРИЛОЖЕНИЯ":
+        log.error("APPS_SCRIPT_URL не задан! Вставь URL веб-приложения в настройки.")
+        return
+
+    log.info("Отправляю данные в Google Sheets через Apps Script...")
+    try:
+        response = requests.post(
+            APPS_SCRIPT_URL,
+            json={"rows": rows},
+            timeout=60
+        )
+        result = response.json()
+        if result.get("status") == "ok":
+            log.info(f"Google Sheets обновлён: {result.get('rows')} строк")
+        else:
+            log.error(f"Ошибка от Apps Script: {result.get('message')}")
+    except requests.exceptions.Timeout:
+        log.error("Таймаут при отправке в Google Sheets")
+    except Exception as e:
+        log.error(f"Ошибка отправки: {e}")
 
 
 def run_export():
